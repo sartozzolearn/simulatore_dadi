@@ -1,6 +1,8 @@
 import streamlit as st
 import random
 from time import sleep
+import plotly.graph_objects as go
+from collections import Counter
 
 def generate_unicode_dice(number, dice_type):
     """Genera una rappresentazione Unicode del dado"""
@@ -14,31 +16,103 @@ def generate_unicode_dice(number, dice_type):
         6: "⚅"
     }
     
-    # Dizionario di rappresentazioni 3D per altri tipi di dadi
-    polygon_dice = {
-        4: "🎲₄",    # dado tetraedro
-        8: "🎲₈",    # dado ottaedro
-        10: "🎲₁₀",  # dado decaedro
-        12: "🎲₁₂",  # dado dodecaedro
-        20: "🎲₂₀"   # dado icosaedro
-    }
-    
-    # Pedici per i numeri
-    subscript = {
-        '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', 
-        '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉'
+    # Dizionario dei numeri cerchiati Unicode
+    circled_numbers = {
+        1: "①", 2: "②", 3: "③", 4: "④", 5: "⑤",
+        6: "⑥", 7: "⑦", 8: "⑧", 9: "⑨", 10: "⑩",
+        11: "⑪", 12: "⑫", 13: "⑬", 14: "⑭", 15: "⑮",
+        16: "⑯", 17: "⑰", 18: "⑱", 19: "⑲", 20: "⑳"
     }
     
     if dice_type == 6:
         return unicode_d6.get(number, "?")
     else:
-        # Converti il numero in pedici
-        number_sub = ''.join(subscript.get(d, d) for d in str(number))
-        return f"🎲{number_sub}"
+        return circled_numbers.get(number, str(number))
+
+def create_distribution_plot(rolls_history, num_dice, num_faces):
+    """Crea un grafico della distribuzione dei risultati"""
+    totals = [roll['total'] for roll in rolls_history]
+    counts = Counter(totals)
+    
+    # Calcola il range possibile di risultati
+    min_possible = num_dice
+    max_possible = num_dice * num_faces
+    
+    # Crea una lista completa di tutti i possibili risultati
+    all_possible = list(range(min_possible, max_possible + 1))
+    values = [counts.get(x, 0) for x in all_possible]
+    
+    # Crea il grafico
+    fig = go.Figure()
+    
+    # Aggiungi l'istogramma
+    fig.add_trace(go.Bar(
+        x=all_possible,
+        y=values,
+        name='Frequenza',
+        marker_color='rgb(30, 136, 229)',
+    ))
+    
+    # Personalizza il layout
+    fig.update_layout(
+        title=f'Distribuzione dei Risultati ({len(totals)} lanci)',
+        xaxis_title='Somma dei Dadi',
+        yaxis_title='Frequenza',
+        bargap=0.1,
+        height=400,
+    )
+    
+    return fig
+
+def create_timeline_plot(rolls_history):
+    """Crea un grafico dell'andamento temporale dei risultati"""
+    if not rolls_history:
+        return None
+        
+    totals = [roll['total'] for roll in rolls_history]
+    roll_numbers = list(range(1, len(totals) + 1))
+    
+    # Calcola la media mobile
+    window = min(5, len(totals))  # Usa una finestra di 5 o meno se ci sono meno lanci
+    moving_avg = []
+    for i in range(len(totals)):
+        start = max(0, i - window + 1)
+        avg = sum(totals[start:i+1]) / (i - start + 1)
+        moving_avg.append(avg)
+    
+    fig = go.Figure()
+    
+    # Aggiungi la linea dei risultati
+    fig.add_trace(go.Scatter(
+        x=roll_numbers,
+        y=totals,
+        mode='lines+markers',
+        name='Risultati',
+        line=dict(color='rgb(30, 136, 229)'),
+    ))
+    
+    # Aggiungi la media mobile
+    fig.add_trace(go.Scatter(
+        x=roll_numbers,
+        y=moving_avg,
+        mode='lines',
+        name='Media Mobile',
+        line=dict(color='rgb(255, 87, 34)', dash='dash'),
+    ))
+    
+    # Personalizza il layout
+    fig.update_layout(
+        title='Andamento dei Risultati nel Tempo',
+        xaxis_title='Numero del Lancio',
+        yaxis_title='Risultato',
+        height=400,
+    )
+    
+    return fig
 
 # Configurazione della pagina
-st.set_page_config(page_title="Simulatore Dadi 3D", page_icon="🎲")
-st.title("🎲 Simulatore Lancio Dadi 3D 🎲")
+st.set_page_config(page_title="Simulatore Dadi", page_icon="🎲", layout="wide")
+st.title("🎲 Simulatore Lancio Dadi 🎲")
 
 # Configurazione dei dadi
 st.sidebar.header("Configurazione Dadi")
@@ -63,57 +137,69 @@ if st.session_state.last_config != (num_dice, num_faces):
     st.session_state.rolls = []
     st.session_state.last_config = (num_dice, num_faces)
 
-# Pulsante per lanciare i dadi
-if st.button(f"Lancia {num_dice} {'dado' if num_dice == 1 else 'dadi'} D{num_faces}"):
-    # Animazione del lancio
-    with st.spinner("Lancio in corso..."):
-        sleep(0.5)  # Breve pausa per effetto animazione
-        
-        # Generazione numeri casuali
-        st.session_state.dice_values = [random.randint(1, num_faces) for _ in range(num_dice)]
-        st.session_state.total = sum(st.session_state.dice_values)
-        
-        # Aggiunta del risultato allo storico
-        st.session_state.rolls.append({
-            'values': st.session_state.dice_values.copy(),
-            'total': st.session_state.total
-        })
+# Layout principale in due colonne
+col_left, col_right = st.columns([2, 1])
 
-# Visualizzazione dei dadi
-st.markdown("### Risultato del lancio")
+with col_left:
+    # Pulsante per lanciare i dadi
+    if st.button(f"Lancia {num_dice} {'dado' if num_dice == 1 else 'dadi'} D{num_faces}"):
+        # Animazione del lancio
+        with st.spinner("Lancio in corso..."):
+            sleep(0.5)
+            
+            # Generazione numeri casuali
+            st.session_state.dice_values = [random.randint(1, num_faces) for _ in range(num_dice)]
+            st.session_state.total = sum(st.session_state.dice_values)
+            
+            # Aggiunta del risultato allo storico
+            st.session_state.rolls.append({
+                'values': st.session_state.dice_values.copy(),
+                'total': st.session_state.total
+            })
 
-# Usa una dimensione del font più grande per i dadi non-D6
-font_size = "4em" if num_faces == 6 else "6em"
-dice_display = " ".join([generate_unicode_dice(value, num_faces) for value in st.session_state.dice_values])
-st.markdown(f"<h1 style='text-align: center; font-size: {font_size};'>{dice_display}</h1>", unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Visualizzazione dei valori numerici
-values_display = ", ".join(str(value) for value in st.session_state.dice_values)
-st.markdown(f"**Valori**: {values_display}")
-
-# Visualizzazione del totale con stile
-st.markdown(f"<h3 style='text-align: center; color: #1e88e5;'>Totale: {st.session_state.total}</h3>", unsafe_allow_html=True)
-
-# Statistiche
-if len(st.session_state.rolls) > 0:
-    st.markdown("### Statistiche")
-    col1, col2 = st.columns(2)
+    # Visualizzazione dei dadi
+    st.markdown("### Risultato del lancio")
+    dice_display = " ".join([generate_unicode_dice(value, num_faces) for value in st.session_state.dice_values])
+    st.markdown(f"<h1 style='text-align: center; font-size: 4em;'>{dice_display}</h1>", unsafe_allow_html=True)
     
-    with col1:
+    # Visualizzazione dei valori numerici
+    values_display = ", ".join(str(value) for value in st.session_state.dice_values)
+    st.markdown(f"**Valori**: {values_display}")
+    
+    # Visualizzazione del totale con stile
+    st.markdown(f"<h3 style='text-align: center; color: #1e88e5;'>Totale: {st.session_state.total}</h3>", unsafe_allow_html=True)
+
+with col_right:
+    # Statistiche base
+    if len(st.session_state.rolls) > 0:
+        st.markdown("### Statistiche")
         st.write(f"Numero di lanci: {len(st.session_state.rolls)}")
         avg_total = sum(roll['total'] for roll in st.session_state.rolls) / len(st.session_state.rolls)
         st.write(f"Media dei totali: {avg_total:.2f}")
-    
-    with col2:
-        # Range teorico
-        min_possible = num_dice  # Ogni dado fa 1
-        max_possible = num_dice * num_faces  # Ogni dado fa il massimo
+        min_possible = num_dice
+        max_possible = num_dice * num_faces
         st.write(f"Range possibile: {min_possible} - {max_possible}")
+
+# Grafici (sotto le colonne principali)
+if len(st.session_state.rolls) > 0:
+    st.markdown("### Analisi dei Risultati")
+    
+    # Tabs per i diversi grafici
+    tab1, tab2 = st.tabs(["📊 Distribuzione", "📈 Andamento Temporale"])
+    
+    with tab1:
+        # Grafico della distribuzione
+        dist_fig = create_distribution_plot(st.session_state.rolls, num_dice, num_faces)
+        st.plotly_chart(dist_fig, use_container_width=True)
         
-    # Visualizzazione dello storico dei lanci
-    if st.checkbox("Mostra storico dei lanci"):
-        st.markdown("#### Ultimi lanci")
-        for i, roll in enumerate(st.session_state.rolls[::-1], 1):
-            st.write(f"Lancio #{len(st.session_state.rolls)-i+1}: "
-                    f"Dadi: {roll['values']} = {roll['total']}")
+    with tab2:
+        # Grafico dell'andamento temporale
+        time_fig = create_timeline_plot(st.session_state.rolls)
+        st.plotly_chart(time_fig, use_container_width=True)
+
+# Storico dei lanci (in fondo alla pagina)
+if len(st.session_state.rolls) > 0 and st.checkbox("Mostra storico dei lanci"):
+    st.markdown("#### Ultimi lanci")
+    for i, roll in enumerate(st.session_state.rolls[::-1], 1):
+        st.write(f"Lancio #{len(st.session_state.rolls)-i+1}: "
+                f"Dadi: {roll['values']} = {roll['total']}")
